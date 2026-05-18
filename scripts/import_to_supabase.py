@@ -8,6 +8,7 @@ key. Never expose the service-role key in browser code.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -95,6 +96,11 @@ def strip_local_paths(value):
     if isinstance(value, str) and re.match(r"^[A-Za-z]:\\", value):
         return ""
     return value
+
+
+def stable_hash(value) -> str:
+    data = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:24]
 
 
 class SupabaseClient:
@@ -257,40 +263,44 @@ def main() -> int:
         for path, data, source_key in batch_data:
             supabase_item_id = item_id_by_source[source_key]
             for section in SECTIONS:
-                for row in data.get(section) or []:
+                for row_index, row in enumerate(data.get(section) or []):
+                    row_data = strip_local_paths(row)
                     section_payloads.append({
                         "item_id": supabase_item_id,
                         "section": section,
+                        "row_key": f"{source_key}:{section}:{row_index}:{stable_hash(row_data)}",
                         "title": row_title(section, row),
                         "body": clean_text(row),
-                        "row_data": strip_local_paths(row),
+                        "row_data": row_data,
                     })
 
             document_rows = data.get("documents") or []
-            for doc in data.get("downloaded_documents") or []:
+            for doc_index, doc in enumerate(data.get("downloaded_documents") or []):
                 file_path = Path(doc.get("file") or "")
                 file_name = doc.get("name") or file_path.name
                 row = document_row_for_file(doc, document_rows)
+                metadata = strip_local_paths({**doc, "row": row})
                 platform = safe_storage_name(platform_name(data))
                 part = safe_storage_name(str(data.get("part_number") or "unknown-part"))
                 storage_path = f"{platform}/{part}/{safe_storage_name(file_name)}"
                 document_payloads.append({
                     "item_id": supabase_item_id,
+                    "document_key": f"{source_key}:document:{doc_index}:{stable_hash(metadata)}",
                     "file_name": file_name,
                     "title": row.get("Title") or "",
                     "document_type": row.get("Type") or Path(file_name).suffix.lower().lstrip("."),
                     "vault": row.get("Vault") or "",
                     "storage_path": storage_path,
-                    "metadata": strip_local_paths({**doc, "row": row}),
+                    "metadata": metadata,
                 })
                 if not args.skip_files and file_path.exists():
                     client.upload_file(args.bucket, storage_path, file_path)
                     uploaded_files += 1
 
         for section_batch in chunks(section_payloads, args.batch_size):
-            client.upsert("section_rows", section_batch, "item_id,section,title")
+            client.upsert("section_rows", section_batch, "row_key")
         for doc_batch in chunks(document_payloads, args.batch_size):
-            client.upsert("documents", doc_batch, "item_id,file_name")
+            client.upsert("documents", doc_batch, "document_key")
         imported_sections += len(section_payloads)
         imported_docs += len(document_payloads)
 

@@ -32,11 +32,12 @@ create table if not exists items (
 create index if not exists items_search_idx on items using gin(search_vector);
 create index if not exists items_part_number_idx on items(part_number);
 create index if not exists items_family_idx on items(related_family_key);
-create unique index if not exists items_source_key_uidx on items(source_key) where source_key is not null;
+create unique index if not exists items_source_key_uidx on items(source_key);
 
 create table if not exists documents (
   id bigint generated always as identity primary key,
   item_id bigint not null references items(id) on delete cascade,
+  document_key text,
   file_name text,
   title text,
   document_type text,
@@ -46,19 +47,20 @@ create table if not exists documents (
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists documents_item_file_uidx on documents(item_id, file_name) where file_name is not null;
+create unique index if not exists documents_document_key_uidx on documents(document_key);
 
 create table if not exists section_rows (
   id bigint generated always as identity primary key,
   item_id bigint not null references items(id) on delete cascade,
   section text not null check (section in ('vendors','parts_list_bom','where_used','changes_ecos')),
+  row_key text,
   title text,
   body text,
   row_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists section_rows_item_section_title_uidx on section_rows(item_id, section, title) where title is not null;
+create unique index if not exists section_rows_row_key_uidx on section_rows(row_key);
 
 alter table platforms enable row level security;
 alter table items enable row level security;
