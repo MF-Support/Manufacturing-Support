@@ -19,6 +19,8 @@ scrape_*.py
 refresh_omnify_vendors.py
 seed_all_parts_from_project_scrape.py
 cleanup_omnify_data.py
+!scripts/
+!scripts/*.py
 __pycache__/
 *.py[cod]
 node_modules/
