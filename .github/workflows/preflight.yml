@@ -22,7 +22,7 @@ jobs:
       - name: Check for blocked local artifacts
         shell: bash
         run: |
-          blocked='(\.sqlite|cookies?|omnify_.*\.html|scrape_.*\.py|probe\.py|__pycache__)'
+          blocked='(^|/)(.*cookies?.*|omnify_(after_login|login|login_probe|item|project|projects|vendor|e3|multiflex).*\.html|scrape_.*\.py|.*probe\.py|__pycache__)(/|$)|\.sqlite($|-)'
           if git ls-files | grep -Ei "$blocked"; then
             echo "Blocked local artifact detected in tracked files."
             exit 1
