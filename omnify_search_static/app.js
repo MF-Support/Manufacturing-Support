@@ -12,7 +12,13 @@ const state = {
   detailRequestId: 0,
   searchController: null,
   detailController: null,
+  session: null,
 };
+
+const SUPABASE_URL = "https://vqnstcikpeyardzupyoo.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxbnN0Y2lrcGV5YXJkenVweW9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxMDM5NjYsImV4cCI6MjA5NDY3OTk2Nn0.OZexHd5bKNkiUctKQkuIo61IlyCqyskOIVs1KphgfHU";
+const STORAGE_BUCKET = "manufacturing-documents";
+const SESSION_KEY = "manufacturing_support_session";
 
 const sectionLabels = {
   overview: "Overview",
@@ -92,10 +98,61 @@ function compactText(value, max = 280) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-async function api(path, options) {
-  const res = await fetch(path, options);
+function authToken() {
+  return state.session?.access_token || SUPABASE_ANON_KEY;
+}
+
+async function supabaseFetch(path, options = {}) {
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${authToken()}`,
+    ...(options.headers || {}),
+  };
+  const res = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function signIn(email, password) {
+  const payload = await supabaseFetch("/auth/v1/token?grant_type=password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  state.session = payload;
+  localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+  renderAuth();
+  await loadPlatforms();
+  await doSearch();
+}
+
+function signOut() {
+  state.session = null;
+  localStorage.removeItem(SESSION_KEY);
+  state.records = [];
+  state.detail = null;
+  state.selected = null;
+  renderAuth();
+  renderResults();
+  renderDetail();
+  $("resultCount").textContent = "Sign in to search";
+}
+
+function loadSession() {
+  try {
+    state.session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  } catch {
+    state.session = null;
+  }
+}
+
+function renderAuth() {
+  const authed = Boolean(state.session?.access_token);
+  $("authForm").hidden = authed;
+  $("logoutBtn").hidden = !authed;
+  $("indexStatus").textContent = authed ? "Connected to Supabase" : "Sign in required";
 }
 
 function isAbortError(err) {
@@ -103,30 +160,20 @@ function isAbortError(err) {
 }
 
 async function refreshStatus() {
-  try {
-    const status = await api("/api/status");
-    const label = status.state === "indexing"
-      ? `Indexing ${formatNumber(status.processed)} / ${formatNumber(status.total)}`
-      : "Database ready";
-    $("indexStatus").textContent = label;
-    if (status.state === "indexing") {
-      $("resultCount").textContent = status.message || label;
-    }
-  } catch {
-    $("indexStatus").textContent = "Index unavailable";
-  }
+  renderAuth();
 }
 
 async function loadPlatforms() {
+  if (!state.session?.access_token) return;
   try {
-    const payload = await api("/api/platforms");
-    state.platforms = payload.platforms || [];
+    const platforms = await supabaseFetch("/rest/v1/platforms?select=id,name&order=name.asc");
+    state.platforms = platforms || [];
     const select = $("platformFilter");
     select.innerHTML = '<option value="">All platforms</option>';
     for (const platform of state.platforms) {
       const option = document.createElement("option");
-      option.value = platform.platform;
-      option.textContent = `${platform.platform} (${formatNumber(platform.item_count)})`;
+      option.value = String(platform.id);
+      option.textContent = platform.name;
       select.appendChild(option);
     }
     renderMetrics();
@@ -141,6 +188,156 @@ function renderMetrics() {
 
 function hitsForRecord(recordId) {
   return state.hits.filter((hit) => hit.record_id === recordId).slice(0, 3);
+}
+
+function escapePostgrestText(value) {
+  return String(value || "").replaceAll("*", " ").replaceAll(",", " ").trim();
+}
+
+function itemSelect() {
+  return "id,platform_id,item_id,part_number,description,type,category,status,revision,related_family_key,raw,platforms(name)";
+}
+
+function mapItem(row) {
+  return {
+    record_id: row.id,
+    id: row.id,
+    platform_id: row.platform_id,
+    platform: row.platforms?.name || "Unknown",
+    item_id: row.item_id || "",
+    part_number: row.part_number || "",
+    description: row.description || "",
+    type: row.type || "",
+    category: row.category || "",
+    status: row.status || "",
+    revision: row.revision || "",
+    related_family_key: row.related_family_key || "",
+    raw: row.raw || {},
+    document_count: 0,
+    vendor_count: 0,
+    bom_count: 0,
+    where_used_count: 0,
+    eco_count: 0,
+  };
+}
+
+function countFieldForSection(section) {
+  return sectionCountFields[section] || "";
+}
+
+async function fetchItemsByIds(ids) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return [];
+  const rows = await supabaseFetch(`/rest/v1/items?select=${itemSelect()}&id=in.(${unique.join(",")})`);
+  return (rows || []).map(mapItem);
+}
+
+async function attachCounts(records) {
+  const ids = records.map((record) => record.record_id);
+  if (!ids.length) return records;
+  const idList = ids.join(",");
+  const sectionRows = await supabaseFetch(`/rest/v1/section_rows?select=item_id,section&item_id=in.(${idList})`);
+  const docs = await supabaseFetch(`/rest/v1/documents?select=item_id&item_id=in.(${idList})`);
+  const byId = Object.fromEntries(records.map((record) => [record.record_id, record]));
+  for (const row of sectionRows || []) {
+    const record = byId[row.item_id];
+    const fieldName = countFieldForSection(row.section);
+    if (record && fieldName) record[fieldName] = Number(record[fieldName] || 0) + 1;
+  }
+  for (const doc of docs || []) {
+    const record = byId[doc.item_id];
+    if (record) record.document_count = Number(record.document_count || 0) + 1;
+  }
+  return records;
+}
+
+function rankRecords(records, query) {
+  const normalized = query.toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+  return records.sort((left, right) => {
+    const lp = String(left.part_number || "").toLowerCase();
+    const rp = String(right.part_number || "").toLowerCase();
+    const ld = String(left.description || "").toLowerCase();
+    const rd = String(right.description || "").toLowerCase();
+    const score = (record, part, desc) => {
+      const partCompact = part.replace(/[^a-z0-9]+/g, "");
+      if (part === normalized) return 0;
+      if (partCompact === compact) return 1;
+      if (desc === normalized) return 2;
+      if (part.startsWith(normalized)) return 3;
+      if (part.includes(normalized)) return 4;
+      if (desc.includes(normalized)) return 5;
+      return 9;
+    };
+    return score(left, lp, ld) - score(right, rp, rd) || lp.localeCompare(rp) || ld.localeCompare(rd);
+  });
+}
+
+function makeHit(row, section) {
+  return {
+    record_id: row.item_id,
+    section,
+    title: row.title || "",
+    body: row.body || "",
+    trail: [state.query, sectionLabels[section] || section],
+  };
+}
+
+async function signedStorageUrl(storagePath) {
+  if (!storagePath) return "";
+  const encodedPath = storagePath.split("/").map(encodeURIComponent).join("/");
+  const payload = await supabaseFetch(`/storage/v1/object/sign/${encodeURIComponent(STORAGE_BUCKET)}/${encodedPath}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: 3600 }),
+  });
+  const signed = payload?.signedURL || payload?.signedUrl || "";
+  return signed ? `${SUPABASE_URL}${signed}` : "";
+}
+
+async function fetchDetail(recordId) {
+  const rows = await supabaseFetch(`/rest/v1/items?select=${itemSelect()}&id=eq.${encodeURIComponent(recordId)}&limit=1`);
+  if (!rows?.length) throw new Error("Item not found");
+  const record = mapItem(rows[0]);
+  const [sectionRows, documents, relatedRows] = await Promise.all([
+    supabaseFetch(`/rest/v1/section_rows?select=id,section,title,body,row_data&item_id=eq.${encodeURIComponent(recordId)}&order=section.asc`),
+    supabaseFetch(`/rest/v1/documents?select=id,file_name,title,document_type,vault,storage_path,metadata&item_id=eq.${encodeURIComponent(recordId)}&order=file_name.asc`),
+    record.related_family_key
+      ? supabaseFetch(`/rest/v1/items?select=${itemSelect()}&related_family_key=eq.${encodeURIComponent(record.related_family_key)}&limit=18`)
+      : Promise.resolve([]),
+  ]);
+  const sections = { documents: [], vendors: [], parts_list_bom: [], where_used: [], changes_ecos: [] };
+  for (const row of sectionRows || []) {
+    if (!sections[row.section]) sections[row.section] = [];
+    sections[row.section].push({
+      section_row_id: row.id,
+      title: row.title,
+      body: row.body,
+      row: row.row_data || {},
+    });
+  }
+  const files = [];
+  for (const doc of documents || []) {
+    const metadata = doc.metadata || {};
+    const name = doc.file_name || metadata.name || "Document";
+    files.push({
+      id: doc.id,
+      name,
+      title: doc.title || "",
+      type: doc.document_type || "",
+      vault: doc.vault || "",
+      bytes: metadata.bytes || 0,
+      extension: String(name).split(".").pop() || "",
+      storage_path: doc.storage_path || "",
+      file_path: doc.storage_path ? await signedStorageUrl(doc.storage_path) : "",
+      upload_skipped_reason: metadata.upload_skipped_reason || "",
+    });
+  }
+  const related = (relatedRows || []).map((row) => ({
+    ...mapItem(row),
+    relationship: row.id === recordId ? "Current item" : "Related",
+  }));
+  return { record, sections, files, related, raw: record.raw || {} };
 }
 
 function renderResults() {
@@ -191,6 +388,10 @@ function renderResults() {
 }
 
 async function doSearch() {
+  if (!state.session?.access_token) {
+    $("resultCount").textContent = "Sign in to search";
+    return;
+  }
   const requestId = ++state.searchRequestId;
   if (state.searchController) state.searchController.abort();
   state.searchController = new AbortController();
@@ -201,19 +402,50 @@ async function doSearch() {
   state.platform = platform;
   state.section = section;
   renderMetrics();
-  const params = new URLSearchParams({
-    q: query,
-    platform,
-    section,
-    limit: "90",
-  });
   $("resultCount").textContent = "Searching...";
-  const payload = await api(`/api/search?${params}`, { signal: state.searchController.signal });
+  const safeQuery = escapePostgrestText(query);
+  const platformClause = platform ? `&platform_id=eq.${encodeURIComponent(platform)}` : "";
+  let records = [];
+  let hits = [];
+  if (!safeQuery) {
+    records = (await supabaseFetch(`/rest/v1/items?select=${itemSelect()}${platformClause}&order=part_number.asc&limit=90`)).map(mapItem);
+  } else {
+    const like = `*${encodeURIComponent(safeQuery)}*`;
+    const itemRows = await supabaseFetch(
+      `/rest/v1/items?select=${itemSelect()}${platformClause}&or=(part_number.ilike.${like},description.ilike.${like},type.ilike.${like},category.ilike.${like})&limit=90`
+    );
+    const itemMap = new Map((itemRows || []).map((row) => [row.id, mapItem(row)]));
+    const sectionFilter = section !== "all" && section !== "documents" ? `&section=eq.${encodeURIComponent(section)}` : "";
+    if (section === "all" || section !== "documents") {
+      const sectionRows = await supabaseFetch(
+        `/rest/v1/section_rows?select=item_id,section,title,body${sectionFilter}&or=(title.ilike.${like},body.ilike.${like})&limit=240`
+      );
+      hits = (sectionRows || []).map((row) => makeHit(row, row.section));
+      const found = await fetchItemsByIds(hits.map((hit) => hit.record_id).filter((id) => !itemMap.has(id)));
+      for (const record of found) itemMap.set(record.record_id, record);
+    }
+    if (section === "all" || section === "documents") {
+      const docs = await supabaseFetch(
+        `/rest/v1/documents?select=item_id,file_name,title,document_type&or=(file_name.ilike.${like},title.ilike.${like},document_type.ilike.${like})&limit=180`
+      );
+      hits.push(...(docs || []).map((doc) => ({
+        record_id: doc.item_id,
+        section: "documents",
+        title: doc.title || doc.file_name || "",
+        body: [doc.file_name, doc.document_type].filter(Boolean).join(" "),
+        trail: [state.query, "Documents"],
+      })));
+      const found = await fetchItemsByIds((docs || []).map((doc) => doc.item_id).filter((id) => !itemMap.has(id)));
+      for (const record of found) itemMap.set(record.record_id, record);
+    }
+    records = rankRecords([...itemMap.values()], query).slice(0, 90);
+  }
   if (requestId !== state.searchRequestId) return;
-  state.records = payload.records || [];
-  state.hits = payload.hits || [];
-  $("resultCount").textContent = `${formatNumber(payload.total || state.records.length)} matching items`;
-  $("activeTrail").textContent = [query || "Browse", platform || "All platforms", sectionLabels[section] || "All topics"].join(" / ");
+  state.records = await attachCounts(records);
+  state.hits = hits;
+  const platformLabel = state.platforms.find((item) => String(item.id) === platform)?.name || "All platforms";
+  $("resultCount").textContent = `${formatNumber(state.records.length)} matching items`;
+  $("activeTrail").textContent = [query || "Browse", platformLabel, sectionLabels[section] || "All topics"].join(" / ");
   renderResults();
 }
 
@@ -227,7 +459,7 @@ async function selectRecord(recordId) {
   const detail = $("detail");
   detail.innerHTML = `<div class="empty-state"><h2>Loading</h2><p>Pulling the full breakdown.</p></div>`;
   detail.scrollTop = 0;
-  const payload = await api(`/api/item?id=${encodeURIComponent(recordId)}`, { signal: state.detailController.signal });
+  const payload = await fetchDetail(recordId);
   if (requestId !== state.detailRequestId || state.selected !== recordId) return;
   state.detail = payload;
   renderDetail();
@@ -419,11 +651,11 @@ function renderDocumentRows() {
 
 function renderDocumentCard(doc, row, fallbackTitle = "") {
   const name = doc?.name || row.File || fallbackTitle || row.Title || "Document";
-  const url = doc?.file_path ? `/api/file?path=${encodeURIComponent(doc.file_path)}` : "";
+  const url = doc?.file_path || "";
   const size = doc?.bytes ? `${formatNumber(doc.bytes)} bytes` : "";
-  const type = row.Type || doc?.extension || "";
-  const vault = row.Vault || "";
-  const title = row.Title || "";
+  const type = row.Type || doc?.type || doc?.extension || "";
+  const vault = row.Vault || doc?.vault || "";
+  const title = row.Title || doc?.title || "";
   const fields = orderedEntries("documents", row)
     .map(([key, value]) => linkedField("documents", row, key, value))
     .join("");
@@ -447,6 +679,7 @@ function renderDocumentCard(doc, row, fallbackTitle = "") {
       <div class="field-grid">
         ${fields || field("File", name, "important")}
         ${size ? field("Size", size) : ""}
+        ${doc?.upload_skipped_reason ? field("Upload status", doc.upload_skipped_reason) : ""}
       </div>
     </details>
   `;
@@ -536,9 +769,9 @@ function attachItemLinks(root) {
           item_id: button.dataset.itemId || "",
           part_number: button.dataset.partNumber || "",
         });
-        const payload = await api(`/api/resolve?${params}`);
-        if (payload.found && payload.record?.record_id) {
-          await selectRecord(Number(payload.record.record_id));
+        const payload = await resolveItem(params.get("item_id"), params.get("part_number"));
+        if (payload?.record_id) {
+          await selectRecord(Number(payload.record_id));
         } else {
           button.textContent = "Not indexed";
           setTimeout(() => {
@@ -561,6 +794,18 @@ function attachItemLinks(root) {
       }
     });
   });
+}
+
+async function resolveItem(itemId, partNumber) {
+  if (itemId) {
+    const rows = await supabaseFetch(`/rest/v1/items?select=${itemSelect()}&item_id=eq.${encodeURIComponent(itemId)}&limit=1`);
+    if (rows?.length) return mapItem(rows[0]);
+  }
+  if (partNumber) {
+    const rows = await supabaseFetch(`/rest/v1/items?select=${itemSelect()}&part_number=ilike.${encodeURIComponent(partNumber)}&limit=1`);
+    if (rows?.length) return mapItem(rows[0]);
+  }
+  return null;
 }
 
 function renderSectionRows(section) {
@@ -643,12 +888,26 @@ $("searchBtn").addEventListener("click", queueSearch);
 $("searchBox").addEventListener("input", queueSearch);
 $("platformFilter").addEventListener("change", queueSearch);
 $("sectionFilter").addEventListener("change", queueSearch);
-$("reindexBtn").addEventListener("click", async () => {
-  $("resultCount").textContent = "Queued index rebuild";
-  await api("/api/reindex", { method: "POST" });
-  refreshStatus();
+$("authForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("resultCount").textContent = "Signing in...";
+  try {
+    await signIn($("emailInput").value.trim(), $("passwordInput").value);
+    $("passwordInput").value = "";
+  } catch (err) {
+    console.error(err);
+    $("resultCount").textContent = "Sign in failed";
+  }
 });
+$("logoutBtn").addEventListener("click", signOut);
 
+loadSession();
 refreshStatus();
-loadPlatforms().then(doSearch);
-setInterval(refreshStatus, 3000);
+if (state.session?.access_token) {
+  loadPlatforms().then(doSearch).catch((err) => {
+    console.error(err);
+    $("resultCount").textContent = "Supabase connection failed";
+  });
+} else {
+  $("resultCount").textContent = "Sign in to search";
+}
