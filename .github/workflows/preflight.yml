@@ -1,0 +1,38 @@
+name: Preflight
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Python
+        run: python -m py_compile omnify_search_app.py
+
+      - name: Check for blocked local artifacts
+        shell: bash
+        run: |
+          blocked='(\.sqlite|cookies?|omnify_.*\.html|scrape_.*\.py|probe\.py|__pycache__)'
+          if git ls-files | grep -Ei "$blocked"; then
+            echo "Blocked local artifact detected in tracked files."
+            exit 1
+          fi
+
+      - name: Check for obvious private markers
+        shell: bash
+        run: |
+          markers='PASSWORD[[:space:]]*=|USER[[:space:]]*=|service[_-]?role|BEGIN .*PRIVATE KEY|C:\\Users\\|Downloads\\'
+          if git grep -InE "$markers" -- . ':!DEPLOYMENT_MANIFEST.md' ':!.github/workflows/preflight.yml'; then
+            echo "Private marker detected in tracked files."
+            exit 1
+          fi

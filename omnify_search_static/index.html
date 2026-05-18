@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manufacturing Support Database</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">C</div>
+          <div>
+            <h1>Manufacturing Support Database</h1>
+            <p id="indexStatus">Index loading</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <span class="source-pill">Local index</span>
+          <button id="reindexBtn" class="ghost-button" type="button">Rebuild index</button>
+        </div>
+      </header>
+      <main class="main">
+        <section class="search-panel">
+          <div class="search-row">
+            <input id="searchBox" type="search" autocomplete="off" spellcheck="false" placeholder="Search U45, schematic, part number, ECO, vendor..." autofocus />
+            <button id="searchBtn" type="button">Search</button>
+          </div>
+          <div class="filter-row">
+            <div class="filter-block">
+              <label for="platformFilter">Platform</label>
+              <select id="platformFilter">
+                <option value="">All platforms</option>
+              </select>
+            </div>
+            <div class="filter-block">
+              <label for="sectionFilter">Topic</label>
+              <select id="sectionFilter">
+                <option value="all">All topics</option>
+                <option value="documents">Documents</option>
+                <option value="vendors">Vendors</option>
+                <option value="parts_list_bom">Parts List / BOM</option>
+                <option value="where_used">Where Used</option>
+                <option value="changes_ecos">Changes / ECOs</option>
+              </select>
+            </div>
+          </div>
+          <div class="metrics" id="platformMetrics"></div>
+          <div class="status-line">
+            <span id="resultCount">Ready</span>
+            <span id="activeTrail"></span>
+          </div>
+        </section>
+        <section class="workspace">
+          <div class="results" id="results"></div>
+          <article class="detail" id="detail">
+            <div class="empty-state">
+              <h2>Select a result</h2>
+              <p>Search across parts, schematics, BOM rows, vendors, Where Used, and ECO history.</p>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

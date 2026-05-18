@@ -1,0 +1,59 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.crt
+*secret*
+*token*
+*cookies*
+*cookie*
+
+# Local databases and generated indexes
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.duckdb
+
+# Scraped/exported data and private documents
+data/
+exports/
+downloads/
+Downloads/
+Omnify_All_Parts*/
+Omnify_All_Platforms*/
+Omnify_*_Scrape*/
+Copeland_Support*/
+
+# Raw scrape captures and probes
+/*.html
+omnify_*_probe.py
+omnify_probe.py
+scrape_*.py
+refresh_omnify_vendors.py
+seed_all_parts_from_project_scrape.py
+cleanup_omnify_data.py
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# JavaScript build artifacts, if a hosted frontend is added later
+node_modules/
+dist/
+build/
+.vite/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
