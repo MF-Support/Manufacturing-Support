@@ -83,8 +83,10 @@ def related_family_key(part_number: str) -> str:
 
 
 def safe_storage_name(value: str) -> str:
-    value = re.sub(r"[\\/:*?\"<>|]+", "_", value or "")
+    value = re.sub(r"[\\/:*?\"<>|#%&{}$!'@+=`,]+", "_", value or "")
+    value = re.sub(r"[^A-Za-z0-9._() -]+", "_", value)
     value = re.sub(r"\s+", " ", value).strip()
+    value = value.strip(". ")
     return value or "unnamed"
 
 
@@ -197,6 +199,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=250)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--skip-files", action="store_true")
+    parser.add_argument("--max-file-mb", type=float, default=float(os.environ.get("SUPABASE_MAX_FILE_MB", "50")))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -228,6 +231,8 @@ def main() -> int:
     imported_sections = 0
     imported_docs = 0
     uploaded_files = 0
+    skipped_files = 0
+    max_file_bytes = int(args.max_file_mb * 1024 * 1024) if args.max_file_mb > 0 else 0
 
     for batch_number, batch_paths in enumerate(chunks(paths, args.batch_size), start=1):
         item_payloads = []
@@ -283,6 +288,25 @@ def main() -> int:
                 platform = safe_storage_name(platform_name(data))
                 part = safe_storage_name(str(data.get("part_number") or "unknown-part"))
                 storage_path = f"{platform}/{part}/{safe_storage_name(file_name)}"
+                file_size = file_path.stat().st_size if file_path.exists() else 0
+                upload_storage_path = storage_path
+                skip_upload_reason = ""
+                if max_file_bytes and file_size > max_file_bytes:
+                    skip_upload_reason = f"file exceeds {args.max_file_mb:g} MB upload limit"
+                    upload_storage_path = ""
+                    metadata["upload_skipped_reason"] = skip_upload_reason
+                if skip_upload_reason:
+                    skipped_files += 1
+                    print(f"Skipping large file: {storage_path} ({file_size / 1024 / 1024:.2f} MB)")
+                elif not args.skip_files and file_path.exists():
+                    try:
+                        client.upload_file(args.bucket, storage_path, file_path)
+                        uploaded_files += 1
+                    except RuntimeError as exc:
+                        skipped_files += 1
+                        upload_storage_path = ""
+                        metadata["upload_skipped_reason"] = str(exc)
+                        print(f"Skipping failed upload: {storage_path} ({exc})")
                 document_payloads.append({
                     "item_id": supabase_item_id,
                     "document_key": f"{source_key}:document:{doc_index}:{stable_hash(metadata)}",
@@ -290,12 +314,9 @@ def main() -> int:
                     "title": row.get("Title") or "",
                     "document_type": row.get("Type") or Path(file_name).suffix.lower().lstrip("."),
                     "vault": row.get("Vault") or "",
-                    "storage_path": storage_path,
+                    "storage_path": upload_storage_path,
                     "metadata": metadata,
                 })
-                if not args.skip_files and file_path.exists():
-                    client.upload_file(args.bucket, storage_path, file_path)
-                    uploaded_files += 1
 
         for section_batch in chunks(section_payloads, args.batch_size):
             client.upsert("section_rows", section_batch, "row_key")
@@ -306,7 +327,8 @@ def main() -> int:
 
         print(
             f"Batch {batch_number}: items={imported_items:,}, "
-            f"section_rows={imported_sections:,}, documents={imported_docs:,}, files={uploaded_files:,}"
+            f"section_rows={imported_sections:,}, documents={imported_docs:,}, "
+            f"files={uploaded_files:,}, skipped_files={skipped_files:,}"
         )
         time.sleep(0.05)
 
