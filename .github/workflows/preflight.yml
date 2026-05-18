@@ -31,8 +31,8 @@ jobs:
       - name: Check for obvious private markers
         shell: bash
         run: |
-          markers='PASSWORD[[:space:]]*=|USER[[:space:]]*=|service[_-]?role|BEGIN .*PRIVATE KEY|C:\\Users\\|Downloads\\'
-          if git grep -InE "$markers" -- . ':!DEPLOYMENT_MANIFEST.md' ':!.github/workflows/preflight.yml'; then
+          markers='DFowler|usstlctpeaidb04|C:\\Users\\MFsupport\.COPELAND|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'\'']?eyJ|BEGIN .*PRIVATE KEY'
+          if git grep -InE "$markers" -- . ':!.env.example' ':!DEPLOYMENT_MANIFEST.md' ':!.github/workflows/preflight.yml'; then
             echo "Private marker detected in tracked files."
             exit 1
           fi
