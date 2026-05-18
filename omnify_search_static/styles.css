@@ -106,6 +106,20 @@ p {
   flex-wrap: wrap;
 }
 
+.auth-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auth-form input {
+  width: 170px;
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .source-pill {
   min-height: 34px;
   display: inline-flex;

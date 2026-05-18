@@ -57,3 +57,11 @@ Then test the importer:
 ```powershell
 python scripts\import_to_supabase.py --dry-run --limit 25
 ```
+
+## GitHub Pages
+
+The static frontend in `omnify_search_static/` is deployed by `.github/workflows/pages.yml`.
+Enable GitHub Pages in the repository settings and choose **GitHub Actions** as the source.
+
+The frontend uses Supabase Auth, Postgres, and private Storage. Run `supabase/003_storage_policies.sql`
+so authenticated users can create signed download links for uploaded documents.
