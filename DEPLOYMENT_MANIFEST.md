@@ -18,6 +18,7 @@ omnify_search_app.py
 omnify_search_static/
 docs/
 supabase/
+scripts/import_to_supabase.py
 ```
 
 Do not commit raw scrape captures, local databases, cookies, cleaned data exports, downloaded documents, or scraper/probe scripts unless they have been reviewed, scrubbed, and approved.

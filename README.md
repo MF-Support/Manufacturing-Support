@@ -43,3 +43,17 @@ For a secure hosted version, use:
 - Vercel, Netlify, Cloudflare Pages, or GitHub Pages for a static frontend
 
 See [Secure Deployment](docs/SECURE_DEPLOYMENT.md) and [Supabase Migration](docs/SUPABASE_MIGRATION.md).
+
+## Supabase Import
+
+After running `supabase/schema.sql`, also run:
+
+```text
+supabase/002_import_keys.sql
+```
+
+Then test the importer:
+
+```powershell
+python scripts\import_to_supabase.py --dry-run --limit 25
+```

@@ -15,6 +15,7 @@ create table if not exists items (
   status text,
   revision text,
   related_family_key text,
+  source_key text,
   raw jsonb not null default '{}'::jsonb,
   search_vector tsvector generated always as (
     to_tsvector(
@@ -31,6 +32,7 @@ create table if not exists items (
 create index if not exists items_search_idx on items using gin(search_vector);
 create index if not exists items_part_number_idx on items(part_number);
 create index if not exists items_family_idx on items(related_family_key);
+create unique index if not exists items_source_key_uidx on items(source_key) where source_key is not null;
 
 create table if not exists documents (
   id bigint generated always as identity primary key,
@@ -44,6 +46,8 @@ create table if not exists documents (
   created_at timestamptz not null default now()
 );
 
+create unique index if not exists documents_item_file_uidx on documents(item_id, file_name) where file_name is not null;
+
 create table if not exists section_rows (
   id bigint generated always as identity primary key,
   item_id bigint not null references items(id) on delete cascade,
@@ -53,6 +57,8 @@ create table if not exists section_rows (
   row_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists section_rows_item_section_title_uidx on section_rows(item_id, section, title) where title is not null;
 
 alter table platforms enable row level security;
 alter table items enable row level security;

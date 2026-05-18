@@ -70,13 +70,44 @@ platform/part-number/file-name.pdf
 
 ## Import Flow
 
-1. Read each cleaned `breakdown.json`.
-2. Upsert platform.
-3. Insert item record.
-4. Upload document files to Supabase Storage.
-5. Insert document metadata.
-6. Insert vendors, BOM, Where Used, and ECO rows into `section_rows`.
-7. Recompute or store related family keys for combined items.
+Run the key migration after the base schema:
+
+```sql
+-- Supabase SQL Editor
+-- Run supabase/002_import_keys.sql
+```
+
+Create a private storage bucket named:
+
+```text
+manufacturing-documents
+```
+
+Then import from the local machine that has the cleaned files:
+
+```powershell
+$env:SUPABASE_URL="https://YOUR-PROJECT.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="YOUR-SERVICE-ROLE-KEY"
+$env:SUPABASE_STORAGE_BUCKET="manufacturing-documents"
+$env:MSD_SOURCE_DIR="C:\path\to\Omnify_All_Parts_Cleaned"
+python scripts\import_to_supabase.py
+```
+
+Recommended first test:
+
+```powershell
+python scripts\import_to_supabase.py --dry-run --limit 25
+```
+
+The importer:
+
+1. Reads each cleaned `breakdown.json`.
+2. Upserts platforms by name.
+3. Upserts items by stable `source_key`.
+4. Uploads document files to Supabase Storage.
+5. Upserts document metadata.
+6. Upserts vendors, BOM, Where Used, and ECO rows into `section_rows`.
+7. Stores `related_family_key` so combined records can be queried later.
 
 ## Security
 
