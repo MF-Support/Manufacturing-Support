@@ -65,6 +65,16 @@ const summaryFields = {
 };
 
 const $ = (id) => document.getElementById(id);
+const isLoginPage = Boolean($("loginScreen"));
+const isAppPage = Boolean($("appShell"));
+
+function appUrl() {
+  return new URL("app.html", window.location.href).toString();
+}
+
+function loginUrl() {
+  return new URL("index.html", window.location.href).toString();
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -124,8 +134,14 @@ async function signIn(email, password) {
   state.session = payload;
   localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
   renderAuth();
-  await loadPlatforms();
-  await doSearch();
+  if (isLoginPage) {
+    window.location.assign(appUrl());
+    return;
+  }
+  if (isAppPage) {
+    await loadPlatforms();
+    await doSearch();
+  }
 }
 
 function signOut() {
@@ -135,9 +151,9 @@ function signOut() {
   state.detail = null;
   state.selected = null;
   renderAuth();
-  renderResults();
-  renderDetail();
-  $("resultCount").textContent = "Sign in to search";
+  if (isAppPage) {
+    window.location.assign(loginUrl());
+  }
 }
 
 function loadSession() {
@@ -150,13 +166,21 @@ function loadSession() {
 
 function renderAuth() {
   const authed = Boolean(state.session?.access_token);
-  $("loginScreen").hidden = authed;
-  $("appShell").hidden = !authed;
-  $("logoutBtn").hidden = !authed;
-  if (authed) {
-    $("indexStatus").textContent = "Connected to Supabase";
-  } else {
+  if (isLoginPage) {
+    if (authed) {
+      window.location.replace(appUrl());
+      return;
+    }
     $("loginMessage").textContent = "Use your approved Supabase account.";
+    return;
+  }
+  if (isAppPage && !authed) {
+    window.location.replace(loginUrl());
+    return;
+  }
+  if (isAppPage) {
+    $("appShell").hidden = false;
+    $("indexStatus").textContent = "Connected to Supabase";
   }
 }
 
@@ -889,30 +913,36 @@ function queueSearch() {
   }), 300);
 }
 
-$("searchBtn").addEventListener("click", queueSearch);
-$("searchBox").addEventListener("input", queueSearch);
-$("platformFilter").addEventListener("change", queueSearch);
-$("sectionFilter").addEventListener("change", queueSearch);
-$("authForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("loginMessage").textContent = "Signing in...";
-  try {
-    await signIn($("emailInput").value.trim(), $("passwordInput").value);
-    $("passwordInput").value = "";
-  } catch (err) {
-    console.error(err);
-    $("loginMessage").textContent = "Sign in failed. Check the email and password.";
-  }
-});
-$("logoutBtn").addEventListener("click", signOut);
-
 loadSession();
 refreshStatus();
-if (state.session?.access_token) {
+
+if (isLoginPage) {
+  $("authForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    $("loginMessage").textContent = "Signing in...";
+    try {
+      await signIn($("emailInput").value.trim(), $("passwordInput").value);
+      $("passwordInput").value = "";
+    } catch (err) {
+      console.error(err);
+      $("loginMessage").textContent = "Sign in failed. Check the email and password.";
+    }
+  });
+}
+
+if (isAppPage) {
+  $("searchBtn").addEventListener("click", queueSearch);
+  $("searchBox").addEventListener("input", queueSearch);
+  $("platformFilter").addEventListener("change", queueSearch);
+  $("sectionFilter").addEventListener("change", queueSearch);
+  $("logoutBtn").addEventListener("click", signOut);
+}
+
+if (isAppPage && state.session?.access_token) {
   loadPlatforms().then(doSearch).catch((err) => {
     console.error(err);
     $("resultCount").textContent = "Supabase connection failed";
   });
-} else {
+} else if (isLoginPage) {
   $("loginMessage").textContent = "Use your approved Supabase account.";
 }
