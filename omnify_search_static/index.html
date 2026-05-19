@@ -7,7 +7,22 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <section id="loginScreen" class="login-screen">
+      <div class="login-panel">
+        <div class="brand-mark login-mark">C</div>
+        <h1>Manufacturing Support Database</h1>
+        <p>Sign in to search parts, schematics, BOM records, vendors, Where Used, documents, and ECO history.</p>
+        <form id="authForm" class="login-form">
+          <label for="emailInput">Email</label>
+          <input id="emailInput" type="email" autocomplete="username" placeholder="name@company.com" required autofocus />
+          <label for="passwordInput">Password</label>
+          <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Password" required />
+          <button id="loginBtn" type="submit">Sign in</button>
+        </form>
+        <p id="loginMessage" class="login-message">Use your approved Supabase account.</p>
+      </div>
+    </section>
+    <div id="appShell" class="app-shell" hidden>
       <header class="topbar">
         <div class="brand">
           <div class="brand-mark">C</div>
@@ -18,12 +33,7 @@
         </div>
         <div class="top-actions">
           <span class="source-pill">Supabase</span>
-          <form id="authForm" class="auth-form">
-            <input id="emailInput" type="email" autocomplete="username" placeholder="Email" />
-            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Password" />
-            <button id="loginBtn" class="ghost-button" type="submit">Sign in</button>
-          </form>
-          <button id="logoutBtn" class="ghost-button" type="button" hidden>Sign out</button>
+          <button id="logoutBtn" class="ghost-button" type="button">Sign out</button>
         </div>
       </header>
       <main class="main">
